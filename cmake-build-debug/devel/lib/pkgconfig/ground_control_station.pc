@@ -1,0 +1,8 @@
+prefix=/home/dcr/hector_quadrotor_ws/src/cmake-build-debug/devel
+
+Name: ground_control_station
+Description: Description of ground_control_station
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

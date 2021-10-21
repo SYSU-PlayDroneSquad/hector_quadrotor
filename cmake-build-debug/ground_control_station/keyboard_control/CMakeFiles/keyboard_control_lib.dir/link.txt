@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -g -shared -Wl,-soname,libkeyboard_control_lib.so -o ../../devel/lib/libkeyboard_control_lib.so CMakeFiles/keyboard_control_lib.dir/src/keyboard_control.cpp.o 

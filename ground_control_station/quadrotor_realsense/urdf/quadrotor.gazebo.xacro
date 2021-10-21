@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+
+<robot name="quadrotor" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:include filename="$(find quadrotor_realsense)/urdf/quadrotor_base_realsense.xacro" />
+
+    <xacro:quadrotor_base_macro frameId="$(arg frameId)"/>
+
+
+    <xacro:include filename="$(find hector_quadrotor_gazebo)/urdf/quadrotor_plugins.gazebo.xacro" />
+</robot>
+

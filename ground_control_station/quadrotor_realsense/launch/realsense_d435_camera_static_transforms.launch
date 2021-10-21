@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+
+<launch>
+  <arg name="camera_name"/>
+  <arg name="uavName" />
+  
+  <node pkg="tf2_ros" type="static_transform_publisher" name="$(arg camera_name)_color_frame_pub" args="0 0.015 0 0 0 0  $(arg uavName)/$(arg camera_name)_link  $(arg uavName)/$(arg camera_name)_color_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="$(arg camera_name)_cam_color_optical_frame_pub" args="0 0 0 -1.57 0 -1.57   $(arg uavName)/$(arg camera_name)_color_frame  $(arg uavName)/$(arg camera_name)_color_optical_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="$(arg camera_name)_depth_frame_pub" args="0 0 0 0 0 0  $(arg uavName)/$(arg camera_name)_link  $(arg uavName)/$(arg camera_name)_depth_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="$(arg camera_name)_depth_optical_frame_pub" args="0 0 0 -1.57 0 -1.57   $(arg uavName)/$(arg camera_name)_depth_frame  $(arg uavName)/$(arg camera_name)_depth_optical_frame" />
+  
+</launch>
