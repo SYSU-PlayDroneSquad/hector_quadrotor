@@ -12,13 +12,6 @@ find_package(catkin REQUIRED COMPONENTS
         )
 find_package(DJIOSDK REQUIRED)
 
-catkin_package(
-        #  INCLUDE_DIRS include
-        #  LIBRARIES ground_control_station
-        #  CATKIN_DEPENDS roscpp rospy
-        #  DEPENDS system_lib
-)
-
 include_directories(
         include
         ${catkin_INCLUDE_DIRS}
@@ -26,15 +19,24 @@ include_directories(
         dji_sdk/dji_sdk/dji_sdk.h
 )
 
-add_library(
-        keyboard_control_lib
-        include/HectorQuadrotor.h
-        include/DjiController.h
-        include/UavGroup.h
-        src/keyboard_control.cpp
+catkin_package(
+#          INCLUDE_DIRS include
+#          LIBRARIES ground_control_station_lib
+#          CATKIN_DEPENDS roscpp rospy hector_uav_msgs
+#          DEPENDS system_lib
 )
 
 
-add_executable(keyboard_controller src/keyboard_control.cpp)
-target_link_libraries(keyboard_controller keyboard_control_lib ${catkin_LIBRARIES} ${DJIOSDK_LIBRARIES})
-#add_dependencies(dji_controller dji_sdk_generate_messages_cpp)
+
+add_library(
+        ground_control_station_lib
+        include/HectorQuadrotor.h
+        include/DjiController.h
+        include/UavGroup.h
+        src/ground_control_station.cpp
+)
+
+
+add_executable(ground_control_station src/ground_control_station.cpp)
+target_link_libraries(ground_control_station ground_control_station_lib ${catkin_LIBRARIES} ${DJIOSDK_LIBRARIES})
+add_dependencies(ground_control_station hector_uav_msgs_generate_messages_cpp)

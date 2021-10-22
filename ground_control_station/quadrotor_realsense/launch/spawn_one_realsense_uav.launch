@@ -14,7 +14,7 @@
         <arg name="debug" value="$(arg debug)"/>
     </include>
 
-<!--     ************************* 地面站 ***************************-->
+<!--  ************************* 地面站 ***************************-->
     <arg name="uavNumbers" default="1" />
     <arg name="dji_gazebo" default="gazebo"/>
     <include file="$(find ground_control_station)/launch/ground_control.launch">

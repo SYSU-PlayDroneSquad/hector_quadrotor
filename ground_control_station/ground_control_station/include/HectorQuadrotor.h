@@ -8,7 +8,7 @@
 #include <sensor_msgs/Joy.h>
 #include <string>
 #include <Eigen/Dense>
-#include "hector_uav_msgs/EnableMotors.h"
+#include <hector_uav_msgs/EnableMotors.h>
 
 
 using std::cout;
