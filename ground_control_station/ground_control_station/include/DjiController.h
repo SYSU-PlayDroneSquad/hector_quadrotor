@@ -3,6 +3,8 @@
 
 // ROS includes
 #include <ros/ros.h>
+#include <ros/time.h>
+#include <ros/duration.h>
 #include <std_msgs/UInt8.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/QuaternionStamped.h>
@@ -11,20 +13,28 @@
 // DJI SDK includes
 #include "dji_sdk/dji_sdk.h"             // 飞行姿态、模式
 #include "dji_sdk/DroneTaskControl.h"    // 起飞降落返航
+#include "dji_sdk/DroneArmControl.h"     // 解锁电机
 #include <dji_sdk/SetLocalPosRef.h>      // GPS相关
 #include <dji_sdk/QueryDroneVersion.h>   // 飞控版本获取
-#include <dji_sdk/DroneArmControl.h>     // 电机锁
 #include <dji_sdk/SDKControlAuthority.h> // 获取板载控制权
 
 // Others includes
-#include <math.h>
+#include <cmath>
+#include <utility>
+
+using std::string;
+using std::cout;
+using std::endl;
 
 class DjiN3Controller {
 public:
+    DjiN3Controller()= default;
     DjiN3Controller(ros::NodeHandle nh, string uavName) {
         // 句柄
         _nh = nh;
-        _uavName = uavName;
+        _uavName = std::move(uavName);
+        // 控制参考坐标系
+        _frame = true; // true = ENU ; false = FLU
         // 速度消息
         _xCmd = _yCmd = _zCmd = _yawCmd = 0;
         _setVelYaw_msg.axes.emplace_back(_xCmd);
@@ -38,11 +48,15 @@ public:
         _setPosYaw_msg.axes.emplace_back(_zCmd);
         _setPosYaw_msg.axes.emplace_back(_yawCmd);
 
+        // 状态
+        _status_pub = _nh.advertise<std_msgs::String>(_uavName + "/status", 10);
+
+
         _yaw = _roll = _pitch = 0.0;
         // 速度限制
-        _vel_limt = 4.0;
+        _vel_limt = 1.0;
         // 速度步进值
-        _step = 0.5;
+        _step = 1.0;
 
         // 飞行状态与模式
         _flight_status = 255;
@@ -50,6 +64,10 @@ public:
         //　无人机任务　client
         _drone_task_client = nh.serviceClient<dji_sdk::DroneTaskControl>(
                 _uavName + "/dji_sdk/drone_task_control");
+        // 解锁电机
+        _motor_control_client = nh.serviceClient<dji_sdk::DroneArmControl>(
+                _uavName + "/dji_sdk/drone_arm_control");
+
         // 速度 publisher
         _setVelYaw_pub = nh.advertise<sensor_msgs::Joy>(
                 _uavName + "/dji_sdk/flight_control_setpoint_ENUvelocity_yawrate", 10);
@@ -62,24 +80,29 @@ public:
         _displayModeSub = nh.subscribe(
                 _uavName + "/dji_sdk/display_mode", 10, &DjiN3Controller::display_mode_CB, this);
         // FLU 到 ENU 的旋转四元数订阅
-        _dji_att_sub = nh.subscribe<geometry_msgs::QuaternionStamped>(
+        _dji_att_sub = _nh.subscribe<geometry_msgs::QuaternionStamped>(
                 _uavName +"/dji_sdk/attitude", 10,
                 boost::bind(&DjiN3Controller::attitude_CB, this, _1));
+        // gps health
+        _gps_health_sub = _nh.subscribe(_uavName + "/dji_sdk/gps_health", 10, &DjiN3Controller::gps_health_CB, this);
 
     }
 
-    ~DjiN3Controller() {}
+    ~DjiN3Controller() = default;
 
     /// 基本控制
     void takeoff() {
-        dji_sdk::DroneTaskControl droneTaskControl;
-        droneTaskControl.request.task = dji_sdk::DroneTaskControl::Request::TASK_TAKEOFF;
-        _drone_task_client.call(droneTaskControl);
-        if (droneTaskControl.response.result) {
-            cout << _uavName << ": Takeoff success!" << endl;
-        } else {
-            cout << "\033[31mError: \033[0m" << "takeoff failed" << endl;
+        ros::Time begin = ros::Time::now();
+        _setVelYaw_msg.axes[0] = 0;
+        _setVelYaw_msg.axes[1] = 0;
+        _setVelYaw_msg.axes[2] = 1;
+        _setVelYaw_msg.axes[3] = 0;
+        ros::Rate rate(100);
+        while(ros::Time::now() - ros::Duration(5) < begin){
+            _setVelYaw_pub.publish(_setVelYaw_msg);
+            rate.sleep();
         }
+        cout << _uavName << ": Takeoff success!" << endl;
     }
 
     void land() {
@@ -106,7 +129,19 @@ public:
         cout << _uavName << ": Successfully sent the stop command!" << endl;
     }
 
+    void clear(){
+        _xCmd = 0;
+        _yCmd = 0;
+        _zCmd = 0;
+        _yawCmd = 0;
+        _setVelYaw_msg.axes[0] = _xCmd;
+        _setVelYaw_msg.axes[1] = _yCmd;
+        _setVelYaw_msg.axes[2] = _zCmd;
+        _setVelYaw_msg.axes[3] = _yawCmd;
+    }
+
     void forward() {
+        clear();
         if (_xCmd >= 0 && _xCmd < _vel_limt) {
             _xCmd += _step;
         } else if (_xCmd < 0) {
@@ -114,12 +149,13 @@ public:
         } else {
             _xCmd = _vel_limt;
         }
-        vel_ENU2FLU();
+        get_vel();
         _setVelYaw_pub.publish(_setVelYaw_msg);
         cout << _uavName << ": Successfully sent the forward command!" << endl;
     }
 
     void backward() {
+        clear();
         if (_xCmd <= 0 && _xCmd > -_vel_limt) {
             _xCmd -= _step;
         } else if (_xCmd > 0) {
@@ -127,12 +163,13 @@ public:
         } else {
             _xCmd = -_vel_limt;
         }
-        vel_ENU2FLU();
+        get_vel();
         _setVelYaw_pub.publish(_setVelYaw_msg);
         cout << _uavName << ": Successfully sent the backward command!" << endl;
     }
 
     void turn_right() {
+        clear();
         if (_yCmd <= 0 && _yCmd > -_vel_limt) {
             _yCmd -= _step;
         } else if (_yCmd > 0) {
@@ -140,12 +177,13 @@ public:
         } else {
             _yCmd = -_vel_limt;
         }
-        vel_ENU2FLU();
+        get_vel();
         _setVelYaw_pub.publish(_setVelYaw_msg);
         cout << _uavName << ": Successfully sent the right turn command!" << endl;
     }
 
     void turn_left() {
+        clear();
         if (_yCmd >= 0 && _yCmd < _vel_limt) {
             _yCmd += _step;
         } else if (_yCmd < 0) {
@@ -153,12 +191,13 @@ public:
         } else {
             _yCmd = _vel_limt;
         }
-        vel_ENU2FLU();
+        get_vel();
         _setVelYaw_pub.publish(_setVelYaw_msg);
         cout << _uavName << ": Successfully sent the left turn command!" << endl;
     }
 
     void upward() {
+        clear();
         if (_zCmd >= 0 && _zCmd < _vel_limt) {
             _zCmd += _step;
         } else if (_zCmd < 0) {
@@ -172,6 +211,7 @@ public:
     }
 
     void down() {
+        clear();
         if (_zCmd <= 0 && _zCmd > -_vel_limt) {
             _zCmd -= _step;
         } else if (_zCmd > 0) {
@@ -185,6 +225,7 @@ public:
     }
 
     void rotate_left() {
+        clear();
         if (_yawCmd >= 0 && _zCmd < _vel_limt) {
             _yawCmd += _step;
         } else if (_yawCmd < 0) {
@@ -198,6 +239,7 @@ public:
     }
 
     void rotate_right() {
+        clear();
         if (_yawCmd <= 0 && _yawCmd > -_vel_limt) {
             _yawCmd -= _step;
         } else if (_yawCmd > 0) {
@@ -210,22 +252,28 @@ public:
         cout << _uavName << ": Successfully sent the right turn command!" << endl;
     }
 
-    void set_pos(sensor_msgs::Joy pos){
+
+    void set_pos(sensor_msgs::Joy pos){///待完善-不可用
         _xCmd = pos.axes[0];
         _yCmd = pos.axes[1];
         _zCmd = pos.axes[2];
         _yawCmd = pos.axes[3];
-        enu2flu(_setPosYaw_msg);
+        pos_enu2flu(_setPosYaw_msg);
         cout << "\033[33m_setPosYaw_msg:\033[0m\n" << _setPosYaw_msg << endl;
         _setPosYaw_pub.publish(_setPosYaw_msg);
     }
 
-    void set_vel(sensor_msgs::Joy vel){
+    void set_vel(sensor_msgs::Joy vel){///待完善-不可用
         _xCmd = vel.axes[0];
         _yCmd = vel.axes[1];
         _zCmd = vel.axes[2];
         _yawCmd = vel.axes[3];
-        vel_ENU2FLU();
+        if(_frame){
+            vel_enu2flu();
+        } else {
+            _setVelYaw_msg.axes[0] = _xCmd;
+            _setVelYaw_msg.axes[1] = _yCmd;
+        }
         _setVelYaw_pub.publish(vel);
     }
 
@@ -254,14 +302,25 @@ public:
         ros::ServiceClient set_local_pos_reference;
         set_local_pos_reference = _nh.serviceClient<dji_sdk::SetLocalPosRef>(
                 _uavName + "/dji_sdk/set_local_pos_ref");
-
         dji_sdk::SetLocalPosRef localPosReferenceSetter;
         set_local_pos_reference.call(localPosReferenceSetter);
-        if (!localPosReferenceSetter.response.result) {
+        ros::Rate r(10);
+        int count = 0;
+        while(ros::ok() && count < 10){
+            if (!localPosReferenceSetter.response.result) {
+                cout << "\033[31mError: \033[0m"<< _uavName <<
+                     " GPS health insufficient,failed to set the local reference frame, set again." << endl;
+            } else {
+                cout << "GPS health,local reference frame set succeed!" << endl;
+                _local_frame = string("1");
+                break;
+            }
+            count++;
+            r.sleep();
+        }
+        if(_local_frame != "1"){
             cout << "\033[31mError: \033[0m"<< _uavName <<
-            " GPS health insufficient - No local frame reference for height." << endl;
-        } else {
-            cout << "GPS health " << endl;
+                 " GPS health insufficient,failed to set the local reference frame." << endl;
         }
     }
 
@@ -298,19 +357,17 @@ public:
             ROS_INFO("Motor Spinning ...");
             ros::spinOnce();
         }
-
     }
 
-    // 使能电机
-    void enable_motor() {
-        ros::ServiceClient enable_motor_client;
-        enable_motor_client = _nh.serviceClient<dji_sdk::DroneArmControl>(
-                _uavName + "/dji_sdk/DroneArmControl");
+    // 电机
+    void motor_control() {
         dji_sdk::DroneArmControl enable;
         enable.request.arm = 1;
-        enable_motor_client.call(enable);
+        _motor_control_client.call(enable);
         if (enable.response.result) {
             cout << "enable motor success" << endl;
+        } else {
+            cout << "enable motor failed" << endl;
         }
     }
 
@@ -329,6 +386,11 @@ public:
         quat2Tf2Rpy(msg);
     }
 
+    // gps 信号等级订阅
+    void gps_health_CB(const std_msgs::UInt8::ConstPtr &msg){
+        _gps_health = msg->data;
+    }
+
     /// 辅助函数
     // 四元数转rpy
     void quat2Tf2Rpy(const geometry_msgs::QuaternionStamped::ConstPtr &msg){
@@ -338,19 +400,21 @@ public:
         _yawRate = _yaw * 180 / M_PI;
     }
 
-    // ENU 二平面坐标系转 FLU 平面坐标系
-    void vel_ENU2FLU(){
+    // 速度、位置 ENU 平面坐标系转 FLU 平面坐标系
+    void vel_enu2flu(){//速度控制转换
         ros::spinOnce();
         double xVel, yVel;
         // 二维坐标系旋转变换
         xVel = _xCmd * cos(-_yaw) + _yCmd * sin(-_yaw);
         yVel = _yCmd * cos(-_yaw) - _xCmd * sin(-_yaw);
         // 大地坐标系的速度
+        _setVelYaw_msg.header.stamp = ros::Time::now();
+        _setVelYaw_msg.header.frame_id = "FLU";
         _setVelYaw_msg.axes[0] = xVel;
         _setVelYaw_msg.axes[1] = yVel;
     }
 
-    void enu2flu(sensor_msgs::Joy &msg){
+    void pos_enu2flu(sensor_msgs::Joy &msg){///位置控制转换 待完善-不可用
         ros::spinOnce();
         double x, y;
         // 二维坐标系旋转变换
@@ -363,9 +427,49 @@ public:
         msg.axes[3] = _rate;
     }
 
-    void get_rate(){
+    void get_yawrate(){
         _rate = -_yawRate;
         cout << "get rate sucess,rate = " << _rate << endl;
+    }
+
+    /*!
+      * 状态信息
+      * 例子：uav1#105
+      *      消息头：auv1
+      *      第一位：通信，1 或 0
+      *      第二位：本地原点设置、1 或 0
+      *      第三位：GPS 信号等级 0 ～ 5
+      *
+      */
+    void pub_status(){
+        // string communication = "1";
+        std_msgs::String status;
+        // status.data = _uavName +"#" + communication + _local_frame + std::to_string(_gps_health);
+        status.data = _uavName + "#" + std::to_string(_gps_health);
+        _status_pub.publish(status);
+    }
+
+    // 机身(FLU)&大地(ENU)坐标系切换
+    bool _frame{};
+    void switch_frame(){
+        _frame = !_frame;
+        if(_frame){
+            printf("\33[33m%s\33[0m: \33[32mframe\33[0m = \33[35mFLU\33[0m\n\n", _uavName.c_str());
+        } else {
+            printf("\33[33m%s\33[0m: \33[32mframe\33[0m = \33[34mENU\33[0m\n\n", _uavName.c_str());
+        }
+    }
+
+    // 赋值速度消息
+    void get_vel(){
+        if(_frame){
+            vel_enu2flu();
+        } else {
+            _setVelYaw_msg.header.stamp = ros::Time::now();
+            _setVelYaw_msg.header.frame_id = "ENU";
+            _setVelYaw_msg.axes[0] = _xCmd;
+            _setVelYaw_msg.axes[1] = _yCmd;
+        }
     }
 
 
@@ -376,15 +480,23 @@ private:
     string _uavName;
     // 飞行任务 client
     ros::ServiceClient _drone_task_client;
-    // 速度 ros 通信
+    // 解锁电机
+    ros::ServiceClient _motor_control_client;
+    // 速度
     sensor_msgs::Joy _setVelYaw_msg;
     ros::Publisher _setVelYaw_pub;
-    // 位置 ros 通信
+    // 位置
     sensor_msgs::Joy _setPosYaw_msg;
     ros::Publisher _setPosYaw_pub;
+    // 状态
+    ros::Publisher _status_pub;
+    static string _local_frame;
+    // GPS
+    ros::Subscriber _gps_health_sub;
+    static uint8_t _gps_health;
 
     // 速度消息辅助参数
-    float _xCmd, _yCmd, _zCmd, _yawCmd, _vel_limt, _step;
+    float _xCmd{}, _yCmd{}, _zCmd{}, _yawCmd{}, _vel_limt{}, _step{};
     // 飞行状态与模式订阅器
     ros::Subscriber _flightStatusSub;
     ros::Subscriber _displayModeSub;
@@ -393,12 +505,13 @@ private:
     // FLU 到 ENU 的姿态角变化
     static double _roll, _pitch, _yaw, _yawRate, _rate;
     // 飞行状态与模式参数
-    uint8_t _flight_status;
-    uint8_t _display_mode;
+    uint8_t _flight_status{};
+    uint8_t _display_mode{};
 
 
 };
-
+string DjiN3Controller::_local_frame = string("0");
+uint8_t DjiN3Controller::_gps_health = 0;
 double DjiN3Controller::_roll = 0.0;
 double DjiN3Controller::_pitch = 0.0;
 double DjiN3Controller::_yaw = 0.0;

@@ -89,6 +89,8 @@ def tasks_publish(pub, key):
         cmd = 'SpeedDown'
     elif key == ' ':
         cmd = 'Stop'
+    elif key == '\x09':
+        cmd = 'switchFrame'
     else:
         cmd = 'illegal'
     if cmd != 'illegal':
@@ -108,7 +110,7 @@ def tasks_publish(pub, key):
 
 
 if __name__ == '__main__':
-    rospy.init_node('keyboard_control_hector', anonymous=True)
+    rospy.init_node('keyboard_control', anonymous=True)
     key_pub = rospy.Publisher('key', String, queue_size=1)
     rate = rospy.Rate(100)  # 100Hz
     print(msg)

@@ -17,25 +17,25 @@ void djiCtrl_keyCB(const std_msgs::String::ConstPtr cmd, UavGroup<DjiN3Controlle
     controller.baseControl(data);
 }
 // dji 位置控制
-void djiSet_group_position_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<DjiN3Controller> &controller){
+void djiSet_group_position_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<DjiN3Controller> &controller){// 待完善
     controller.pos_globalControl(*msg);
 }
 //dji 速度控制
-void djiSet_group_velocity_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<DjiN3Controller> &controller){
+void djiSet_group_velocity_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<DjiN3Controller> &controller){// 待完善
     controller.vel_globalControl(*msg);
 }
 
-// gazebo 键盘回调
+// gazebo 键盘控制
 void ctrl_keyCB(const std_msgs::String::ConstPtr cmd, UavGroup<HectorQuadrotor> &controller) {
     string data = cmd->data;
     controller.baseControl(data);
 }
 // gazebo 位置控制
-void set_group_position_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<HectorQuadrotor> &controller){
+void set_group_position_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<HectorQuadrotor> &controller){// 待完善
     controller.pos_globalControl(*msg);
 }
 // gazebo 速度控制
-void set_group_velocity_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<HectorQuadrotor> &controller){
+void set_group_velocity_CB(const sensor_msgs::Joy::ConstPtr msg, UavGroup<HectorQuadrotor> &controller){// 待完善
     controller.vel_globalControl(*msg);
 }
 
@@ -51,10 +51,12 @@ int main(int argc, char **argv) {
     string dji_gazebo;
 
     // 从参数服务器获取 uavNumbers 和 dji_gazebo 变量值
-    nh.param("/keyboard_controller/uavNumbers", uavNumbers, 10);
-    nh.getParam("/keyboard_controller/dji_gazebo", dji_gazebo);
-    cout << "\033[33mdji_gazebo = \033[0m" << dji_gazebo <<  endl;
-    cout << "\033[33muavNumbers = \033[0m" << uavNumbers <<  endl;
+    nh.param("/ground_control_station/uavNumbers", uavNumbers, 10);
+    nh.getParam("/ground_control_station/dji_gazebo", dji_gazebo);
+
+    printf("\33[33mstation\33[0m: \33[32mdji_gazebo\33[0m = \33[36m%s\33[0m\n\n", dji_gazebo.c_str());
+
+    printf("\33[33mstation\33[0m: \33[32muavNumbers\33[0m = \33[36m%d\33[0m\n\n", uavNumbers);
 
     if (dji_gazebo == "dji") {
         // 创建 dji N3 无人机类型组

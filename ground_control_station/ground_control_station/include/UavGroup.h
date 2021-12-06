@@ -26,18 +26,23 @@ public:
             for(int i = 0; i < _uavNumbers; i++){
                 // 获取板载控制权
                 _uav_group[i].obtain_control();
-                // // 获取无人机飞控型号
+                // 将本地位置的原点设置为当前 GPS 坐标
                 _uav_group[i].set_local_position();
-                // 获取板载控制权
+                // 获取无人机飞控型号
                 _uav_group[i].get_version();
             }
         }
     }
 
+    void check_data(){
+
+    }
+
+
     void baseControl(const std::string data){
         if (data == "MotorUnlock") {
             for(int i = 0; i < _uavNumbers; i++){
-                _uav_group[i].enable_motor();
+                _uav_group[i].motor_control();
             }
         } else if (data == "Takeoff") {
             for(int i = 0; i < _uavNumbers; i++){
@@ -82,6 +87,10 @@ public:
         } else if (data == "RotateLeft"){
             for(int i = 0; i < _uavNumbers; i++){
                 _uav_group[i].rotate_left();
+            }
+        } else if (data == "switchFrame"){
+            for(int i = 0; i < _uavNumbers; i++){
+                _uav_group[i].switch_frame();
             }
         }
     }

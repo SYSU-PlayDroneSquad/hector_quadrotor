@@ -7,7 +7,7 @@
 #include <gazebo_msgs/GetModelState.h>
 #include <sensor_msgs/Joy.h>
 #include <string>
-#include <Eigen/Dense>
+//#include <Eigen/Dense>
 #include <hector_uav_msgs/EnableMotors.h>
 
 
@@ -51,7 +51,7 @@ public:
     ~HectorQuadrotor() {}
 
     /// 键盘控制
-    void enable_motor() {
+    void motor_control() {
         hector_uav_msgs::EnableMotors srv;
         srv.request.enable = true;
         _enable_motor_client.call(srv);
@@ -220,6 +220,11 @@ public:
         vel.angular.z = msg->axes[3];
         cout << "vel:\n" << vel << endl;
         vel_pub.publish(vel);
+    }
+
+    // 机身(FLU)&大地(ENU)坐标系切换
+    void switch_frame(){
+
     }
 
 
